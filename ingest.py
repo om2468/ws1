@@ -46,4 +46,16 @@ try:
 except Exception as e:
     print(f"Warning: Could not load C-Suite Briefing. Error: {e}")
 
+print("Loading NotebookLM Template into DuckDB...")
+nb_file = os.path.join(base_dir, 'notebooklm_template.md')
+try:
+    with open(nb_file, 'r', encoding='utf-8') as f:
+        nb_text = f.read()
+    con.execute("DROP TABLE IF EXISTS notebooklm_template")
+    con.execute("CREATE TABLE notebooklm_template (content TEXT)")
+    con.execute("INSERT INTO notebooklm_template VALUES (?)", (nb_text,))
+    print("Successfully loaded NotebookLM Template.")
+except Exception as e:
+    print(f"Warning: Could not load NotebookLM Template. Error: {e}")
+
 con.close()

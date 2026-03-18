@@ -233,41 +233,92 @@ elif page == "Companies & Roles":
         st.plotly_chart(fig_title, use_container_width=True)
 
 elif page == "C-Suite Strategy Deck 🎯":
-    # Check if briefing content is available in the db
-    tables = con.execute("SHOW TABLES").fetchdf()
-    if 'csuite_briefing' in tables['name'].values:
-        briefing_text = con.execute("SELECT content FROM csuite_briefing").fetchone()[0]
-        st.markdown(briefing_text)
-    else:
-        st.warning("C-Suite Briefing not found in database. Please run ingest.py to load the briefing.")
+    st.header("Executive Board Briefing")
+    tab1, tab2 = st.tabs(["📊 Strategy & TAM Matrix", "🎙️ NotebookLM Podcast Source Data"])
     
-    st.markdown("---")
-    
-    col1, col2, col3 = st.columns(3)
-    inmail_cost = 2.0  # Assumed cost of a paid InMail message
-    open_leads_count = con.execute(f"SELECT COUNT(*) FROM leads {base_where} AND open_profile_=True").fetchone()[0]
-    total_savings = open_leads_count * inmail_cost
-    
-    col1.metric("Total Free InMail Leads", f"{open_leads_count:,} Leads")
-    col2.metric("Acquisition Cost Saved", f"${total_savings:,.2f}", "via Open Profiles")
-    col3.metric("Premium Networkers", "18.9%", "High Conversion Proxy")
+    with tab1:
+        # Check if briefing content is available in the db
+        tables = con.execute("SHOW TABLES").fetchdf()
+        if 'csuite_briefing' in tables['name'].values:
+            briefing_text = con.execute("SELECT content FROM csuite_briefing").fetchone()[0]
+            st.markdown(briefing_text)
+        else:
+            st.warning("C-Suite Briefing not found in database. Please run ingest.py to load the briefing.")
+        
+        st.markdown("---")
+        
+        col1, col2, col3 = st.columns(3)
+        inmail_cost = 2.0  # Assumed cost of a paid InMail message
+        open_leads_count = con.execute(f"SELECT COUNT(*) FROM leads {base_where} AND open_profile_=True").fetchone()[0]
+        total_savings = open_leads_count * inmail_cost
+        
+        col1.metric("Total Free InMail Leads", f"{open_leads_count:,} Leads")
+        col2.metric("Acquisition Cost Saved", f"${total_savings:,.2f}", "via Open Profiles")
+        
+        prem_leads = con.execute(f"SELECT COUNT(*) FROM leads {base_where} AND premium_linkedin_=True").fetchone()[0]
+        total = con.execute(f"SELECT COUNT(*) FROM leads {base_where}").fetchone()[0]
+        pct = (prem_leads / total * 100) if total > 0 else 0
+        col3.metric("Premium Networkers", f"{pct:.1f}%", "High Conversion Proxy")
 
-    st.markdown("---")
-    st.subheader("Cross-Tab Analysis: Highest ROI Targeting Matrix")
-    st.markdown("This matrix identifies the precise intersection of Industry and Seniority, revealing where marketing dollars should be allocated first. Target these cross-sections on LinkedIn Ads.")
-    
-    cross_df = con.execute(f"""
-        SELECT industry, job_title, COUNT(*) as Count 
-        FROM leads {base_where} 
-        AND industry IS NOT NULL 
-        AND job_title IN ('Director', 'Managing Director', 'Founder', 'Chief Executive Officer', 'Partner', 'Co-Founder', 'Owner')
-        GROUP BY industry, job_title
-        ORDER BY Count DESC
-        LIMIT {chart_limit * 2}
-    """).fetchdf()
-    
-    fig_cross = px.treemap(cross_df, path=['industry', 'job_title'], values='Count', color='Count', color_continuous_scale='Sunset', title='Decision Makers by Industry (TAM)')
-    st.plotly_chart(fig_cross, use_container_width=True)
+        st.markdown("---")
+        st.subheader("Cross-Tab Analysis: Highest ROI Targeting Matrix")
+        st.markdown("This matrix identifies the precise intersection of Industry and Seniority, revealing where marketing dollars should be allocated first. Target these cross-sections on LinkedIn Ads.")
+        
+        cross_df = con.execute(f"""
+            SELECT industry, job_title, COUNT(*) as Count 
+            FROM leads {base_where} 
+            AND industry IS NOT NULL 
+            AND job_title IN ('Director', 'Managing Director', 'Founder', 'Chief Executive Officer', 'Partner', 'Co-Founder', 'Owner')
+            GROUP BY industry, job_title
+            ORDER BY Count DESC
+            LIMIT {chart_limit * 2}
+        """).fetchdf()
+        
+        fig_cross = px.treemap(cross_df, path=['industry', 'job_title'], values='Count', color='Count', color_continuous_scale='Sunset', title='Decision Makers by Industry (TAM)')
+        st.plotly_chart(fig_cross, use_container_width=True)
+
+    with tab2:
+        st.markdown("### Prepare Data for NotebookLM (Podcast & Blog Post Generation)")
+        st.caption("Google's NotebookLM can ingest structured text to generate realistic podcasts and blog posts. This dynamic string converts your current live SQL filters into an analytical narrative ready for AI.")
+        
+        # Gather live data for the narrative
+        d_total = con.execute(f"SELECT COUNT(*) FROM leads {base_where}").fetchone()[0]
+        
+        d_ind = con.execute(f"SELECT industry FROM leads {base_where} AND industry IS NOT NULL GROUP BY industry ORDER BY COUNT(*) DESC LIMIT 3").fetchdf()['industry'].tolist()
+        ind_str = ", ".join(d_ind) if d_ind else "various sectors"
+        
+        d_loc = con.execute(f"SELECT person_s_location FROM leads {base_where} AND person_s_location IS NOT NULL GROUP BY person_s_location ORDER BY COUNT(*) DESC LIMIT 3").fetchdf()['person_s_location'].tolist()
+        loc_str = ", ".join(d_loc) if d_loc else "global areas"
+        
+        d_acc = con.execute(f"SELECT company_name FROM leads {base_where} AND company_name IS NOT NULL GROUP BY company_name ORDER BY COUNT(*) DESC LIMIT 3").fetchdf()['company_name'].tolist()
+        acc_str = ", ".join(d_acc) if d_acc else "various companies"
+        
+        open_ct = con.execute(f"SELECT COUNT(*) FROM leads {base_where} AND open_profile_=True").fetchone()[0]
+        
+        savings = open_ct * 2
+        tables_nb = con.execute("SHOW TABLES").fetchdf()
+        if 'notebooklm_template' in tables_nb['name'].values:
+            nb_template = con.execute("SELECT content FROM notebooklm_template").fetchone()[0]
+            notebooklm_source_text = nb_template.format(
+                d_total=d_total, 
+                ind_str=ind_str, 
+                loc_str=loc_str, 
+                acc_str=acc_str, 
+                open_ct=open_ct, 
+                savings=savings
+            )
+        else:
+            notebooklm_source_text = "Error: NotebookLM template missing from database. Please run ingest.py to load 'notebooklm_template.md'."
+            
+        st.text_area("Live Data Script (Copy/Paste into NotebookLM)", value=notebooklm_source_text, height=400)
+        
+        st.download_button(
+            label="📥 Download Data Narrative formatted for NotebookLM (.md)",
+            data=notebooklm_source_text.encode('utf-8'),
+            file_name="NotebookLM_Source_Document.md",
+            mime="text/markdown",
+            type="primary"
+        )
 
 elif page == "Spatial Maps 🌍":
     st.header("Geographic Distribution Maps")
