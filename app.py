@@ -6,14 +6,7 @@ import plotly.express as px
 st.set_page_config(page_title="LinkedIn Leads Analytics Dashboard", page_icon="📊", layout="wide")
 
 import os
-
-DB_FILE = os.path.join(os.path.dirname(__file__), 'leads.duckdb')
-
-@st.cache_resource
-def get_connection():
-    return duckdb.connect(DB_FILE, read_only=True)
-
-con = get_connection()
+import tempfile
 
 st.markdown("""
 <style>
@@ -23,6 +16,22 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("📊 LinkedIn Leads Deep Dive")
+
+st.sidebar.markdown("**Upload Database File**")
+uploaded_file = st.sidebar.file_uploader("Upload leads.duckdb file", type=["duckdb", "db"])
+
+if not uploaded_file:
+    st.info("👋 Please upload the `leads.duckdb` file in the sidebar to proceed. This ensures no sensitive data is stored in the repository.")
+    st.stop()
+
+@st.cache_resource(show_spinner=False)
+def get_connection(file_bytes):
+    tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".duckdb")
+    tmp_file.write(file_bytes)
+    tmp_file.close()
+    return duckdb.connect(tmp_file.name, read_only=True)
+
+con = get_connection(uploaded_file.getvalue())
 
 # Sidebar navigation
 page = st.sidebar.radio("Navigation", [
@@ -166,7 +175,7 @@ elif page == "C-Suite Strategy Deck 🎯":
 
 elif page == "Spatial Maps 🌍":
     st.header("Geographic Distribution Maps")
-    st.markdown("Visualize the density of high-value leads across key markets.")
+    st.markdown("Visualize the density of high-value leads across global markets.")
     
     # Check if geo table exists
     tables = con.execute("SHOW TABLES").fetchdf()
@@ -174,46 +183,58 @@ elif page == "Spatial Maps 🌍":
         st.warning("Geocoding in progress. Please wait a moment and refresh.")
     else:
         df_map = con.execute(f"""
-            SELECT l.person_s_location, COUNT(*) as Count, m.lat, m.lon
+            SELECT l.person_s_location, COUNT(*) as Count
             FROM leads l
-            JOIN meta_geo m ON l.person_s_location = m.person_s_location
             {base_where}
-            GROUP BY l.person_s_location, m.lat, m.lon
+            GROUP BY l.person_s_location
         """).fetchdf()
 
         if len(df_map) > 0:
-            st.subheader("Global Footprint")
-            fig_global = px.scatter_mapbox(
-                df_map, lat="lat", lon="lon", size="Count", 
-                hover_name="person_s_location", hover_data=["Count"],
-                color_discrete_sequence=["#1f77b4"], zoom=1, 
-                mapbox_style="carto-positron"
+            # Extract simple country from location string
+            def extract_country(loc):
+                if not isinstance(loc, str): return 'Unknown'
+                parts = loc.split(',')
+                country = parts[-1].strip()
+                # Handle special cases / manual mappings
+                if country in ['England', 'Scotland', 'Wales', 'Northern Ireland', 'Greater Oxford Area']:
+                    return 'United Kingdom'
+                if country == 'UAE':
+                    return 'United Arab Emirates'
+                if 'United States' in country:
+                    return 'United States'
+                return country
+
+            df_map['Country'] = df_map['person_s_location'].apply(extract_country)
+            df_country = df_map.groupby('Country', as_index=False)['Count'].sum()
+            
+            st.subheader("Global Footprint (Choropleth)")
+            fig_global = px.choropleth(
+                df_country, 
+                locations="Country", 
+                locationmode="country names", 
+                color="Count",
+                hover_name="Country",
+                color_continuous_scale="Blues",
+                title="Global Lead Distribution"
             )
-            fig_global.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
+            fig_global.update_layout(margin={"r":0,"t":40,"l":0,"b":0})
             st.plotly_chart(fig_global, use_container_width=True)
 
-            col1, col2 = st.columns(2)
-            with col1:
-                st.subheader("United Kingdom Density")
-                fig_uk = px.scatter_mapbox(
-                    df_map, lat="lat", lon="lon", size="Count", 
-                    hover_name="person_s_location", hover_data=["Count"],
-                    color_discrete_sequence=["#ff7f0e"], zoom=4.5, center={"lat": 53.3, "lon": -1.5},
-                    mapbox_style="carto-positron"
-                )
-                fig_uk.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
-                st.plotly_chart(fig_uk, use_container_width=True)
-
-            with col2:
-                st.subheader("Greater London Saturation")
-                fig_lon = px.scatter_mapbox(
-                    df_map, lat="lat", lon="lon", size="Count", 
-                    hover_name="person_s_location", hover_data=["Count"],
-                    color_discrete_sequence=["#2ca02c"], zoom=8.5, center={"lat": 51.5074, "lon": -0.1278},
-                    mapbox_style="carto-positron"
-                )
-                fig_lon.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
-                st.plotly_chart(fig_lon, use_container_width=True)
+            # Keep a closer look at Europe if applicable
+            st.subheader("European Footprint")
+            fig_europe = px.choropleth(
+                df_country, 
+                locations="Country", 
+                locationmode="country names", 
+                color="Count",
+                hover_name="Country",
+                color_continuous_scale="Oranges",
+                scope="europe",
+                title="European Lead Distribution"
+            )
+            fig_europe.update_layout(margin={"r":0,"t":40,"l":0,"b":0})
+            st.plotly_chart(fig_europe, use_container_width=True)
+            
         else:
             st.info("No spatial data available for current geo filters.")
 
