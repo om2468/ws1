@@ -124,7 +124,7 @@ elif page == "Demographics & Geo":
             FROM leads {base_where}
             GROUP BY Profile_Type
         """).fetchdf()
-        fig_conn = px.pie(df_conn, names='Profile_Type', values='Count', hole=0.4, title='High-Conviction Audience Matrix', color_discrete_sequence=px.colors.sequential.AgbnYl)
+        fig_conn = px.pie(df_conn, names='Profile_Type', values='Count', hole=0.4, title='High-Conviction Audience Matrix', color_discrete_sequence=px.colors.sequential.Sunset)
         st.plotly_chart(fig_conn, use_container_width=True)
 
     st.markdown("---")
