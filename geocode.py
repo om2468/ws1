@@ -4,7 +4,9 @@ from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 import time
 
-DB_FILE = '/Users/cherrytian/Documents/GitHub/ws1/leads.duckdb'
+import os
+
+DB_FILE = os.path.join(os.path.dirname(__file__), 'leads.duckdb')
 print("Connecting to DuckDB...")
 con = duckdb.connect(DB_FILE)
 

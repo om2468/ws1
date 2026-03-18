@@ -5,7 +5,9 @@ import plotly.express as px
 
 st.set_page_config(page_title="LinkedIn Leads Analytics Dashboard", page_icon="📊", layout="wide")
 
-DB_FILE = '/Users/cherrytian/Documents/GitHub/ws1/leads.duckdb'
+import os
+
+DB_FILE = os.path.join(os.path.dirname(__file__), 'leads.duckdb')
 
 @st.cache_resource
 def get_connection():

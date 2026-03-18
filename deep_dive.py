@@ -1,6 +1,8 @@
 import pandas as pd
 
-excel_file = '/Users/cherrytian/Documents/GitHub/ws1/WS1.xlsx'
+import os
+
+excel_file = os.path.join(os.path.dirname(__file__), 'WS1.xlsx')
 
 try:
     df = pd.read_excel(excel_file, sheet_name='Sheet1')

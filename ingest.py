@@ -2,8 +2,11 @@ import pandas as pd
 import duckdb
 import re
 
-excel_file = '/Users/cherrytian/Documents/GitHub/ws1/WS1.xlsx'
-db_file = '/Users/cherrytian/Documents/GitHub/ws1/leads.duckdb'
+import os
+
+base_dir = os.path.dirname(__file__)
+excel_file = os.path.join(base_dir, 'WS1.xlsx')
+db_file = os.path.join(base_dir, 'leads.duckdb')
 
 print("Reading Excel file...")
 df = pd.read_excel(excel_file, sheet_name='Sheet1')
@@ -32,7 +35,7 @@ count = con.execute("SELECT COUNT(*) FROM leads").fetchone()[0]
 print(f"Successfully loaded {count} rows into '{db_file}'.")
 
 print("Loading C-Suite Briefing into DuckDB...")
-briefing_file = '/Users/cherrytian/Documents/GitHub/ws1/csuite_briefing.md'
+briefing_file = os.path.join(base_dir, 'csuite_briefing.md')
 try:
     with open(briefing_file, 'r', encoding='utf-8') as f:
         briefing_text = f.read()
