@@ -47,6 +47,8 @@ page = st.sidebar.radio("Navigation", [
 st.sidebar.markdown('---')
 st.sidebar.markdown("**Global Filters**")
 
+chart_limit = st.sidebar.slider("Number of records in top charts:", min_value=5, max_value=100, value=20, step=5)
+
 geo_tags = con.execute("SELECT DISTINCT geo_tag FROM leads WHERE geo_tag IS NOT NULL").fetchdf()
 selected_geo = st.sidebar.multiselect("Select Geo Region:", geo_tags['geo_tag'].tolist(), default=geo_tags['geo_tag'].tolist())
 
@@ -97,27 +99,73 @@ elif page == "Demographics & Geo":
         st.plotly_chart(fig_geo, use_container_width=True)
     with col2:
         st.subheader("Top 'Person Location's")
-        df_loc = con.execute(f"SELECT person_s_location, COUNT(*) as Count FROM leads {base_where} GROUP BY person_s_location ORDER BY Count DESC LIMIT 15").fetchdf()
+        df_loc = con.execute(f"SELECT person_s_location, COUNT(*) as Count FROM leads {base_where} GROUP BY person_s_location ORDER BY Count DESC LIMIT {chart_limit}").fetchdf()
         fig_loc = px.bar(df_loc, y='person_s_location', x='Count', orientation='h', color='Count', color_continuous_scale='Blues')
         fig_loc.update_layout(yaxis={'categoryorder': 'total ascending'})
         st.plotly_chart(fig_loc, use_container_width=True)
         
     st.markdown("---")
-    st.subheader("Profile Connectivity Potential")
+    st.subheader("Profile Connectivity Potential & Cross-Matrix")
     colA, colB = st.columns(2)
     with colA:
         df_prem = con.execute(f"SELECT premium_linkedin_, COUNT(*) as Count FROM leads {base_where} GROUP BY premium_linkedin_").fetchdf()
         fig_prem = px.pie(df_prem, names='premium_linkedin_', values='Count', hole=0.4, title='Premium Users (Highly Active)')
         st.plotly_chart(fig_prem, use_container_width=True)
     with colB:
-        df_open = con.execute(f"SELECT open_profile_, COUNT(*) as Count FROM leads {base_where} GROUP BY open_profile_").fetchdf()
-        fig_open = px.pie(df_open, names='open_profile_', values='Count', hole=0.4, title='Open Profiles (Free InMail)')
-        st.plotly_chart(fig_open, use_container_width=True)
+        df_conn = con.execute(f"""
+            SELECT 
+                CASE 
+                    WHEN premium_linkedin_ = True AND open_profile_ = True THEN 'Super Connectors (Premium + Open)'
+                    WHEN premium_linkedin_ = True THEN 'Premium Only'
+                    WHEN open_profile_ = True THEN 'Open Only'
+                    ELSE 'Standard Profiles'
+                END as Profile_Type,
+                COUNT(*) as Count
+            FROM leads {base_where}
+            GROUP BY Profile_Type
+        """).fetchdf()
+        fig_conn = px.pie(df_conn, names='Profile_Type', values='Count', hole=0.4, title='High-Conviction Audience Matrix', color_discrete_sequence=px.colors.sequential.AgbnYl)
+        st.plotly_chart(fig_conn, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("Remote Workforce Analysis (HQ vs Local)")
+    df_remote = con.execute(f"""
+        SELECT 
+            CASE 
+                WHEN LOWER(person_s_location) LIKE '%' || LOWER(split_part(company_hq, ',', 1)) || '%' THEN 'Local to HQ'
+                ELSE 'Remote / Distributed'
+            END as Worker_Type,
+            COUNT(*) as Count
+        FROM leads {base_where} AND company_hq IS NOT NULL AND person_s_location IS NOT NULL
+        GROUP BY Worker_Type
+    """).fetchdf()
+    fig_remote = px.pie(df_remote, names='Worker_Type', values='Count', hole=0.4, title='Distributed Workforce Proxy', color_discrete_sequence=['#ff7f0e', '#1f77b4'])
+    st.plotly_chart(fig_remote, use_container_width=True)
 
 elif page == "Companies & Roles":
     st.header("Companies & Roles Analysis")
+    
+    st.markdown("### 🎯 The Decision Maker Funnel")
+    df_funnel = con.execute(f"""
+        SELECT 
+            CASE 
+                WHEN job_title ILIKE '%Chief%' OR job_title ILIKE '%CEO%' OR job_title ILIKE '%CTO%' OR job_title ILIKE '%Founder%' THEN '1. C-Level / Founders'
+                WHEN job_title ILIKE '%VP%' OR job_title ILIKE '%Vice President%' THEN '2. VP Level'
+                WHEN job_title ILIKE '%Director%' THEN '3. Directors'
+                WHEN job_title ILIKE '%Manager%' OR job_title ILIKE '%Head%' THEN '4. Managers / Heads'
+                ELSE '5. Individual Contributors'
+            END as Seniority,
+            COUNT(*) as Count
+        FROM leads {base_where} AND job_title IS NOT NULL
+        GROUP BY Seniority
+        ORDER BY Seniority
+    """).fetchdf()
+    fig_funnel = px.funnel(df_funnel, x='Count', y='Seniority', color='Seniority', title="Audience Seniority Distribution")
+    st.plotly_chart(fig_funnel, use_container_width=True)
+
+    st.markdown("---")
     st.markdown("### Top Industries")
-    df_ind = con.execute(f"SELECT industry, COUNT(*) as Count FROM leads {base_where} AND industry IS NOT NULL GROUP BY industry ORDER BY Count DESC LIMIT 20").fetchdf()
+    df_ind = con.execute(f"SELECT industry, COUNT(*) as Count FROM leads {base_where} AND industry IS NOT NULL GROUP BY industry ORDER BY Count DESC LIMIT {chart_limit}").fetchdf()
     fig_ind = px.bar(df_ind, x='Count', y='industry', orientation='h', color='Count', color_continuous_scale='Mint')
     fig_ind.update_layout(yaxis={'categoryorder': 'total ascending'})
     st.plotly_chart(fig_ind, use_container_width=True)
@@ -125,13 +173,25 @@ elif page == "Companies & Roles":
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("### Top Companies Represented")
-        df_comp = con.execute(f"SELECT company_name, COUNT(*) as Count FROM leads {base_where} AND company_name IS NOT NULL GROUP BY company_name ORDER BY Count DESC LIMIT 15").fetchdf()
+        df_comp = con.execute(f"SELECT company_name, COUNT(*) as Count FROM leads {base_where} AND company_name IS NOT NULL GROUP BY company_name ORDER BY Count DESC LIMIT {chart_limit}").fetchdf()
         fig_comp = px.bar(df_comp, x='Count', y='company_name', orientation='h', color_discrete_sequence=['#ff7f0e'])
         fig_comp.update_layout(yaxis={'categoryorder': 'total ascending'})
         st.plotly_chart(fig_comp, use_container_width=True)
+        
+        st.markdown(f"### Account-Based Saturation (Top {chart_limit})")
+        df_abm = con.execute(f"""
+            SELECT company_name, COUNT(DISTINCT job_title) as Unique_Roles
+            FROM leads {base_where} AND company_name IS NOT NULL
+            GROUP BY company_name
+            ORDER BY COUNT(*) DESC
+            LIMIT {chart_limit}
+        """).fetchdf()
+        fig_abm = px.bar(df_abm, x='Unique_Roles', y='company_name', orientation='h', title='Distinct Titles per Account (Horizontal Coverage)', color='Unique_Roles', color_continuous_scale='Purples')
+        fig_abm.update_layout(yaxis={'categoryorder': 'total ascending'})
+        st.plotly_chart(fig_abm, use_container_width=True)
     with col2:
         st.markdown("### Top Job Titles")
-        df_title = con.execute(f"SELECT job_title, COUNT(*) as Count FROM leads {base_where} AND job_title IS NOT NULL GROUP BY job_title ORDER BY Count DESC LIMIT 15").fetchdf()
+        df_title = con.execute(f"SELECT job_title, COUNT(*) as Count FROM leads {base_where} AND job_title IS NOT NULL GROUP BY job_title ORDER BY Count DESC LIMIT {chart_limit}").fetchdf()
         fig_title = px.bar(df_title, x='Count', y='job_title', orientation='h', color_discrete_sequence=['#2ca02c'])
         fig_title.update_layout(yaxis={'categoryorder': 'total ascending'})
         st.plotly_chart(fig_title, use_container_width=True)
@@ -167,7 +227,7 @@ elif page == "C-Suite Strategy Deck 🎯":
         AND job_title IN ('Director', 'Managing Director', 'Founder', 'Chief Executive Officer', 'Partner', 'Co-Founder', 'Owner')
         GROUP BY industry, job_title
         ORDER BY Count DESC
-        LIMIT 20
+        LIMIT {chart_limit * 2}
     """).fetchdf()
     
     fig_cross = px.treemap(cross_df, path=['industry', 'job_title'], values='Count', color='Count', color_continuous_scale='Sunset', title='Decision Makers by Industry (TAM)')
@@ -183,28 +243,26 @@ elif page == "Spatial Maps 🌍":
         st.warning("Geocoding in progress. Please wait a moment and refresh.")
     else:
         df_map = con.execute(f"""
-            SELECT l.person_s_location, COUNT(*) as Count
+            SELECT l.person_s_location, COUNT(*) as Count, MAX(m.lat) as lat, MAX(m.lon) as lon, l.industry
             FROM leads l
+            LEFT JOIN meta_geo m ON l.person_s_location = m.person_s_location
             {base_where}
-            GROUP BY l.person_s_location
+            GROUP BY l.person_s_location, l.industry
         """).fetchdf()
 
         if len(df_map) > 0:
-            # Extract simple country from location string
             def extract_country(loc):
                 if not isinstance(loc, str): return 'Unknown'
                 parts = loc.split(',')
                 country = parts[-1].strip()
-                # Handle special cases / manual mappings
-                if country in ['England', 'Scotland', 'Wales', 'Northern Ireland', 'Greater Oxford Area']:
-                    return 'United Kingdom'
-                if country == 'UAE':
-                    return 'United Arab Emirates'
-                if 'United States' in country:
-                    return 'United States'
+                if country in ['England', 'Scotland', 'Wales', 'Northern Ireland', 'Greater Oxford Area']: return 'United Kingdom'
+                if country == 'UAE': return 'United Arab Emirates'
+                if 'United States' in country: return 'United States'
                 return country
 
             df_map['Country'] = df_map['person_s_location'].apply(extract_country)
+            
+            # Aggregate for global choropleth
             df_country = df_map.groupby('Country', as_index=False)['Count'].sum()
             
             st.subheader("Global Footprint (Choropleth)")
@@ -220,20 +278,35 @@ elif page == "Spatial Maps 🌍":
             fig_global.update_layout(margin={"r":0,"t":40,"l":0,"b":0})
             st.plotly_chart(fig_global, use_container_width=True)
 
-            # Keep a closer look at Europe if applicable
-            st.subheader("European Footprint")
-            fig_europe = px.choropleth(
-                df_country, 
-                locations="Country", 
-                locationmode="country names", 
-                color="Count",
-                hover_name="Country",
-                color_continuous_scale="Oranges",
-                scope="europe",
-                title="European Lead Distribution"
-            )
-            fig_europe.update_layout(margin={"r":0,"t":40,"l":0,"b":0})
-            st.plotly_chart(fig_europe, use_container_width=True)
+            st.markdown("---")
+            st.subheader("UK Density Heatmap & Regional Hotspots")
+            df_uk = df_map[df_map['Country'] == 'United Kingdom'].dropna(subset=['lat', 'lon'])
+            if len(df_uk) > 0:
+                fig_uk_heat = px.density_mapbox(
+                    df_uk, lat='lat', lon='lon', z='Count', radius=25,
+                    center=dict(lat=53.3, lon=-1.5), zoom=4.5,
+                    mapbox_style="carto-positron", title="UK High-Value Lead Density"
+                )
+                fig_uk_heat.update_layout(margin={"r":0,"t":40,"l":0,"b":0})
+                st.plotly_chart(fig_uk_heat, use_container_width=True)
+            else:
+                st.info("No UK leads found with valid coordinates for this filter.")
+
+            st.markdown("---")
+            st.subheader("Industry Hub Heatmap (Cross-Tabulation)")
+            # Aggregate by location and industry (ignore null industries)
+            df_hub = df_map.dropna(subset=['industry']).groupby(['person_s_location', 'industry'], as_index=False)['Count'].sum()
+            df_hub = df_hub.sort_values('Count', ascending=False).head(chart_limit * 2)  # Expanded limit
+            
+            if len(df_hub) > 0:
+                fig_hub = px.density_heatmap(
+                    df_hub, x="industry", y="person_s_location", z="Count", 
+                    color_continuous_scale="Viridis", title="Top Geo-Industry Clusters"
+                )
+                fig_hub.update_layout(yaxis={'categoryorder': 'total ascending'})
+                st.plotly_chart(fig_hub, use_container_width=True)
+            else:
+                st.info("No industry data available for this view.")
             
         else:
             st.info("No spatial data available for current geo filters.")
