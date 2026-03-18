@@ -10,8 +10,44 @@ import tempfile
 
 st.markdown("""
 <style>
-    .reportview-container { background: #f0f2f6 }
-    .stMetric { background-color: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif !important;
+    }
+    
+    /* Premium Metric Card Styling */
+    div[data-testid="metric-container"] {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        padding: 24px 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+        transition: all 0.2s ease;
+        text-align: center;
+    }
+    
+    div[data-testid="metric-container"]:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
+        border-color: #cbd5e1;
+    }
+
+    /* Hide default Streamlit artifacts */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    
+    /* Sleeker Sidebar */
+    section[data-testid="stSidebar"] {
+        background-color: #f8fafc;
+        border-right: 1px dashed #e2e8f0;
+    }
+    
+    pre {
+        background-color: #f1f5f9 !important;
+        border-radius: 8px !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -313,12 +349,12 @@ elif page == "Spatial Maps 🌍":
 
 elif page == "Lead Database 🔗":
     st.header("Search & Export Master List")
-    st.markdown("Filter, search, and access LinkedIn profiles directly.")
+    st.caption("Filter, search, and access LinkedIn profiles directly.")
     
     # Search inputs
     col1, col2 = st.columns(2)
-    search_name = col1.text_input("Search Name:")
-    search_title = col2.text_input("Search Title or Company:")
+    search_name = col1.text_input("🔍 Search Name:")
+    search_title = col2.text_input("🏢 Search Title or Company:")
     
     query = f"""
     SELECT 
@@ -346,13 +382,13 @@ elif page == "Lead Database 🔗":
         results,
         column_config={
             "LinkedIn URL": st.column_config.LinkColumn(
-                "LinkedIn Profile",
+                "🔗 LinkedIn Profile",
                 help="Click to open LinkedIn profile",
                 validate="^https://.*",
                 max_chars=100,
             ),
             "Company URL": st.column_config.LinkColumn(
-                "Company Page",
+                "🏢 Company Page",
                 help="Click to open LinkedIn company page",
                 validate="^https://.*",
                 max_chars=100,
@@ -360,4 +396,15 @@ elif page == "Lead Database 🔗":
         },
         use_container_width=True,
         hide_index=True
+    )
+    
+    st.divider()
+    
+    csv = results.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Download Database View (CSV)",
+        data=csv,
+        file_name="linkedin_leads_export.csv",
+        mime="text/csv",
+        type="primary"
     )
