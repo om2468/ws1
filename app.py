@@ -280,7 +280,7 @@ elif page == "Companies & Roles":
         st.plotly_chart(fig_title, use_container_width=True)
 
 elif page == "C-Suite Strategy Deck 🎯":
-    st.header("Executive Board Briefing")
+    st.header("UK Market Outreach Intelligence")
     tab1, tab2 = st.tabs(["📊 Strategy & TAM Matrix", "🎙️ NotebookLM Podcast Source Data"])
     
     with tab1:
@@ -294,35 +294,102 @@ elif page == "C-Suite Strategy Deck 🎯":
         
         st.markdown("---")
         
-        col1, col2, col3 = st.columns(3)
-        inmail_cost = 2.0  # Assumed cost of a paid InMail message
-        open_leads_count = con.execute(f"SELECT COUNT(*) FROM leads {base_where} AND open_profile_=True").fetchone()[0]
-        total_savings = open_leads_count * inmail_cost
-        
-        col1.metric("Reachable via Free InMail", f"{open_leads_count:,} Followers")
-        col2.metric("Acquisition Cost Saved", f"${total_savings:,.2f}", "via Open Profiles")
-        
-        prem_leads = con.execute(f"SELECT COUNT(*) FROM leads {base_where} AND premium_linkedin_=True").fetchone()[0]
+        # --- Key outreach metrics ---
         total = con.execute(f"SELECT COUNT(*) FROM leads {base_where}").fetchone()[0]
-        pct = (prem_leads / total * 100) if total > 0 else 0
-        col3.metric("Premium Networkers", f"{pct:.1f}%", "High Conversion Proxy")
+        open_leads_count = con.execute(f"SELECT COUNT(*) FROM leads {base_where} AND open_profile_=True").fetchone()[0]
+        prem_leads = con.execute(f"SELECT COUNT(*) FROM leads {base_where} AND premium_linkedin_=True").fetchone()[0]
+        pct_open = (open_leads_count / total * 100) if total > 0 else 0
+        pct_prem = (prem_leads / total * 100) if total > 0 else 0
+        companies_count = con.execute(f"SELECT COUNT(DISTINCT company_name) FROM leads {base_where} AND company_name IS NOT NULL").fetchone()[0]
+        
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total Followers (Filtered)", f"{total:,}")
+        col2.metric("Reachable via Free InMail", f"{open_leads_count:,}", f"{pct_open:.1f}% of base")
+        col3.metric("Premium Networkers", f"{prem_leads:,}", f"{pct_prem:.1f}% — highly active")
+        col4.metric("Unique Companies", f"{companies_count:,}", "Targetable accounts")
 
+        # --- Top Industries (respects global filters) ---
         st.markdown("---")
-        st.subheader("Cross-Tab Analysis: Highest ROI Targeting Matrix")
-        st.markdown("This matrix identifies the precise intersection of Industry and Seniority, revealing where marketing dollars should be allocated first. Target these cross-sections on LinkedIn Ads.")
+        col_ind, col_sen = st.columns(2)
+        with col_ind:
+            st.subheader("Top Industries")
+            df_ind_cs = con.execute(f"""
+                SELECT industry, COUNT(*) as Count
+                FROM leads {base_where} AND industry IS NOT NULL
+                GROUP BY industry ORDER BY Count DESC LIMIT {chart_limit}
+            """).fetchdf()
+            if len(df_ind_cs) > 0:
+                fig_ind_cs = px.bar(df_ind_cs, x='Count', y='industry', orientation='h',
+                                     color='Count', color_continuous_scale='Teal', text='Count')
+                fig_ind_cs.update_layout(yaxis={'categoryorder': 'total ascending'},
+                                          showlegend=False, height=max(360, len(df_ind_cs) * 26))
+                fig_ind_cs.update_traces(texttemplate='%{text:,}', textposition='outside')
+                st.plotly_chart(fig_ind_cs, use_container_width=True)
+
+        with col_sen:
+            st.subheader("Seniority Breakdown")
+            df_sen_cs = con.execute(f"""
+                SELECT
+                    CASE
+                        WHEN job_title ILIKE '%Chief%' OR job_title ILIKE '%CEO%' OR job_title ILIKE '%CTO%'
+                             OR job_title ILIKE '%CFO%' OR job_title ILIKE '%Founder%' THEN 'C-Level / Founders'
+                        WHEN job_title ILIKE '%VP%' OR job_title ILIKE '%Vice President%' THEN 'VP Level'
+                        WHEN job_title ILIKE '%Director%' THEN 'Directors'
+                        WHEN job_title ILIKE '%Manager%' OR job_title ILIKE '%Head%' THEN 'Managers / Heads'
+                        ELSE 'Individual Contributors'
+                    END as Seniority,
+                    COUNT(*) as Count
+                FROM leads {base_where} AND job_title IS NOT NULL
+                GROUP BY Seniority ORDER BY Count DESC
+            """).fetchdf()
+            if len(df_sen_cs) > 0:
+                fig_sen_cs = px.pie(df_sen_cs, names='Seniority', values='Count', hole=0.45,
+                                     color_discrete_sequence=px.colors.qualitative.Set2)
+                fig_sen_cs.update_layout(height=420)
+                st.plotly_chart(fig_sen_cs, use_container_width=True)
+
+        # --- Decision Makers by Industry (TAM) — expanded view ---
+        st.markdown("---")
+        st.subheader("Decision Makers by Industry — Targeting Matrix")
+        st.markdown("Identifies the intersection of **Industry × Seniority** for your outreach campaigns. Use the sidebar filters to drill into specific geo regions or industries.")
         
         cross_df = con.execute(f"""
-            SELECT industry, job_title, COUNT(*) as Count 
+            SELECT 
+                industry,
+                CASE
+                    WHEN job_title ILIKE '%Chief%' OR job_title ILIKE '%CEO%' OR job_title ILIKE '%CTO%'
+                         OR job_title ILIKE '%CFO%' OR job_title ILIKE '%Founder%' OR job_title ILIKE '%Co-Founder%'
+                         THEN 'C-Level / Founders'
+                    WHEN job_title ILIKE '%VP%' OR job_title ILIKE '%Vice President%' THEN 'VP Level'
+                    WHEN job_title ILIKE '%Director%' OR job_title ILIKE '%Managing Director%' THEN 'Directors'
+                    WHEN job_title ILIKE '%Manager%' OR job_title ILIKE '%Head%' THEN 'Managers / Heads'
+                    ELSE 'Individual Contributors'
+                END as Seniority,
+                COUNT(*) as Count
             FROM leads {base_where} 
-            AND industry IS NOT NULL 
-            AND job_title IN ('Director', 'Managing Director', 'Founder', 'Chief Executive Officer', 'Partner', 'Co-Founder', 'Owner')
-            GROUP BY industry, job_title
+            AND industry IS NOT NULL AND job_title IS NOT NULL
+            GROUP BY industry, Seniority
             ORDER BY Count DESC
-            LIMIT {chart_limit * 2}
         """).fetchdf()
         
-        fig_cross = px.treemap(cross_df, path=['industry', 'job_title'], values='Count', color='Count', color_continuous_scale='Sunset', title='Decision Makers by Industry (TAM)')
-        st.plotly_chart(fig_cross, use_container_width=True)
+        if len(cross_df) > 0:
+            # Sunburst for better hierarchy visualisation
+            fig_sun = px.sunburst(cross_df, path=['industry', 'Seniority'], values='Count',
+                                   color='Count', color_continuous_scale='Sunset',
+                                   title='Follower Base: Industry → Seniority (all levels)')
+            fig_sun.update_layout(height=650, margin=dict(t=40, l=0, r=0, b=0))
+            st.plotly_chart(fig_sun, use_container_width=True)
+            
+            # Heatmap for precise numbers
+            top_ind = cross_df.groupby('industry')['Count'].sum().nlargest(chart_limit).index.tolist()
+            cross_filtered = cross_df[cross_df['industry'].isin(top_ind)]
+            pivot = cross_filtered.pivot_table(index='industry', columns='Seniority', values='Count', fill_value=0)
+            fig_heat = px.imshow(pivot, color_continuous_scale='Blues', aspect='auto',
+                                  labels=dict(x='Seniority', y='Industry', color='Followers'),
+                                  title=f'Industry × Seniority Heatmap (Top {chart_limit} Industries)',
+                                  text_auto=True)
+            fig_heat.update_layout(height=max(400, len(top_ind) * 32))
+            st.plotly_chart(fig_heat, use_container_width=True)
 
     with tab2:
         st.markdown("### Prepare Data for NotebookLM (Podcast & Blog Post Generation)")
@@ -599,6 +666,80 @@ elif page == "Spatial Maps 🌍":
             )
             fig_heat.update_layout(height=500)
             st.plotly_chart(fig_heat, use_container_width=True)
+
+        # ---------- 4b. Key Markets Industry Comparison ----------
+        st.markdown("---")
+        st.subheader("Industry Mix Comparison: UK, France, Belgium & Netherlands")
+        st.markdown("Side-by-side view of industry composition across key European markets — highlighting similarities and differences in follower profiles.")
+
+        focus_countries = ['United Kingdom', 'France', 'Belgium', 'Netherlands']
+        df_focus = df_ind_geo[df_ind_geo['Country'].isin(focus_countries)]
+
+        if len(df_focus) > 0:
+            df_focus_agg = df_focus.groupby(['Country', 'industry'], as_index=False)['Count'].sum()
+            # Calculate percentage share within each country
+            country_totals = df_focus_agg.groupby('Country')['Count'].transform('sum')
+            df_focus_agg['Pct'] = (df_focus_agg['Count'] / country_totals * 100).round(1)
+
+            # Keep top industries across these 4 countries for readability
+            top_focus_ind = df_focus_agg.groupby('industry')['Count'].sum().nlargest(15).index.tolist()
+            df_focus_plot = df_focus_agg[df_focus_agg['industry'].isin(top_focus_ind)]
+
+            # Grouped bar — absolute counts
+            fig_compare = px.bar(
+                df_focus_plot, x='industry', y='Count', color='Country',
+                barmode='group', text='Count',
+                title='Follower Count by Industry across Key Markets',
+                color_discrete_map={
+                    'United Kingdom': '#1f77b4', 'France': '#ff7f0e',
+                    'Belgium': '#2ca02c', 'Netherlands': '#d62728',
+                },
+            )
+            fig_compare.update_layout(
+                xaxis_tickangle=-45, height=520,
+                xaxis_title='Industry', yaxis_title='Followers',
+                legend_title='Country',
+            )
+            fig_compare.update_traces(texttemplate='%{text:,}', textposition='outside')
+            st.plotly_chart(fig_compare, use_container_width=True)
+
+            # Percentage share stacked bar — normalised view
+            fig_pct = px.bar(
+                df_focus_plot, x='industry', y='Pct', color='Country',
+                barmode='group', text='Pct',
+                title='Industry Share (%) within Each Country — Normalised Comparison',
+                color_discrete_map={
+                    'United Kingdom': '#1f77b4', 'France': '#ff7f0e',
+                    'Belgium': '#2ca02c', 'Netherlands': '#d62728',
+                },
+            )
+            fig_pct.update_layout(
+                xaxis_tickangle=-45, height=520,
+                xaxis_title='Industry', yaxis_title='% of Country Followers',
+                legend_title='Country',
+            )
+            fig_pct.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+            st.plotly_chart(fig_pct, use_container_width=True)
+
+            # Radar / polar chart for top 8 industries
+            top8_ind = df_focus_agg.groupby('industry')['Count'].sum().nlargest(8).index.tolist()
+            df_radar = df_focus_agg[df_focus_agg['industry'].isin(top8_ind)].copy()
+            # Normalise to % within country for fair comparison
+            df_radar['Pct'] = df_radar['Pct'].round(1)
+            fig_radar = px.line_polar(
+                df_radar, r='Pct', theta='industry', color='Country',
+                line_close=True,
+                title='Industry Profile Radar — Top 8 Industries (% share per country)',
+                color_discrete_map={
+                    'United Kingdom': '#1f77b4', 'France': '#ff7f0e',
+                    'Belgium': '#2ca02c', 'Netherlands': '#d62728',
+                },
+            )
+            fig_radar.update_traces(fill='toself', opacity=0.25)
+            fig_radar.update_layout(height=550)
+            st.plotly_chart(fig_radar, use_container_width=True)
+        else:
+            st.info("Not enough data for the selected filters to compare these markets.")
 
         # ---------- 5. Country Drill-down ----------
         st.markdown("---")
